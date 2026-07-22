@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 
-const KINDS = ["roadmap", "spec", "note", "doc"];
+const KINDS = ["roadmap", "spec", "note", "doc", "prompt"];
 
 export async function GET() {
   const session = await getSession();

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 
-const KINDS = ["roadmap", "spec", "note", "doc"];
+const KINDS = ["roadmap", "spec", "note", "doc", "prompt"];
 
 async function findOwned(id: string, userId: string) {
   return prisma.artifact.findFirst({ where: { id, userId } });

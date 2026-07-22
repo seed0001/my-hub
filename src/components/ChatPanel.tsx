@@ -32,12 +32,19 @@ export default function ChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Text-to-speech
+  // --- Text-to-speech ---------------------------------------------------
   const [autoSpeak, setAutoSpeak] = useState(false);
   const autoSpeakRef = useRef(false);
   const [speakingIdx, setSpeakingIdx] = useState<number | null>(null);
   const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // One persistent <audio> element, unlocked synchronously during a user
+  // tap — iOS refuses playback on elements created after an async fetch.
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const audioUnlockedRef = useRef(false);
+  const blobUrlRef = useRef<string | null>(null);
+
+  const SILENT_WAV =
+    "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
 
   useEffect(() => {
     const on = localStorage.getItem("hub_autospeak") === "1";
@@ -45,7 +52,25 @@ export default function ChatPanel({
     autoSpeakRef.current = on;
   }, []);
 
+  function getAudioEl(): HTMLAudioElement {
+    if (!audioElRef.current) {
+      audioElRef.current = new Audio();
+      audioElRef.current.preload = "auto";
+    }
+    return audioElRef.current;
+  }
+
+  /** Must run synchronously inside a tap/keypress handler. */
+  function unlockAudio() {
+    if (audioUnlockedRef.current) return;
+    const a = getAudioEl();
+    a.src = SILENT_WAV;
+    a.play().catch(() => {});
+    audioUnlockedRef.current = true;
+  }
+
   function toggleAutoSpeak() {
+    unlockAudio();
     setAutoSpeak((v) => {
       const next = !v;
       autoSpeakRef.current = next;
@@ -56,14 +81,20 @@ export default function ChatPanel({
   }
 
   function stopSpeech() {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
+    const a = audioElRef.current;
+    if (a) {
+      a.pause();
+      a.removeAttribute("src");
+    }
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
     }
     setSpeakingIdx(null);
   }
 
   async function speak(text: string, idx: number) {
+    unlockAudio(); // sync part of this handler still counts as the gesture
     if (speakingIdx === idx) {
       stopSpeech();
       return;
@@ -77,18 +108,23 @@ export default function ChatPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || `Speech failed (${res.status}).`);
+        return;
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audio.onended = audio.onerror = () => {
-        URL.revokeObjectURL(url);
+      blobUrlRef.current = url;
+      const a = getAudioEl();
+      a.src = url;
+      a.onended = a.onerror = () => {
         setSpeakingIdx((cur) => (cur === idx ? null : cur));
       };
       setSpeakingIdx(idx);
-      await audio.play();
+      await a.play();
     } catch {
+      setError("Couldn't play audio on this device.");
       setSpeakingIdx(null);
     } finally {
       setLoadingIdx((cur) => (cur === idx ? null : cur));
@@ -121,6 +157,7 @@ export default function ChatPanel({
     if (!text || streaming) return;
     setError(null);
     setInput("");
+    unlockAudio(); // so auto-speak can play when the reply arrives
     stopSpeech();
     let assistantIdx = -1;
     setMessages((m) => {
@@ -253,8 +290,8 @@ export default function ChatPanel({
               <div className="flex flex-col gap-2">
                 {[
                   "Turn my latest idea into a project roadmap",
+                  "Write a build prompt for the next phase of my top project",
                   "What should I focus on today?",
-                  "Start a 25 minute focus session on my top project",
                 ].map((s) => (
                   <button
                     key={s}

@@ -32,7 +32,7 @@ const STATUSES = [
   "ARCHIVED",
 ] as const;
 
-const ARTIFACT_KINDS = ["roadmap", "spec", "note", "doc"] as const;
+const ARTIFACT_KINDS = ["roadmap", "spec", "note", "doc", "prompt"] as const;
 
 function normalizeUrl(raw: string): string {
   const trimmed = raw.trim();
@@ -204,7 +204,7 @@ export const TOOL_DEFS = [
     function: {
       name: "create_artifact",
       description:
-        "Create a document (artifact) in the catalog: a roadmap, spec, or note in markdown. Use for structured deliverables like project roadmaps with phases, milestones, and checkbox tasks. Returns the artifact number (e.g. 12 → shown as A-12).",
+        "Create a document (artifact) in the catalog: a roadmap, spec, note, or build prompt in markdown. Use kind 'prompt' for build prompts — complete, self-contained instructions handed to a coding agent. Returns the artifact number (e.g. 12 → shown as A-12).",
       parameters: {
         type: "object",
         properties: {

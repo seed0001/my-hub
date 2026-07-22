@@ -7,6 +7,76 @@ import type { ArtifactDTO } from "@/lib/types";
 import { ARTIFACT_KIND_META } from "@/lib/types";
 import { timeAgo } from "@/lib/time";
 
+function CopyButton({ text, compact }: { text: string; compact?: boolean }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy(e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Older mobile browsers: fall back to a hidden textarea.
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }
+  }
+
+  if (compact) {
+    return (
+      <button
+        onClick={copy}
+        title="Copy to clipboard"
+        aria-label="Copy to clipboard"
+        className={`shrink-0 rounded-md p-1.5 transition-colors ${
+          copied ? "text-emerald-300" : "text-hub-muted hover:text-white"
+        }`}
+      >
+        {copied ? "✓" : <CopyIcon />}
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={copy}
+      className={`btn py-1.5 text-xs ${
+        copied
+          ? "border border-emerald-700 bg-emerald-950/40 text-emerald-300"
+          : "bg-hub-accent text-white hover:bg-indigo-500"
+      }`}
+    >
+      {copied ? "✓ Copied" : "⧉ Copy"}
+    </button>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
 export default function Artifacts({
   artifacts,
   setArtifacts,
@@ -44,8 +114,9 @@ export default function Artifacts({
         <div className="card flex flex-col items-center justify-center gap-3 p-10 text-center">
           <div className="text-3xl">📄</div>
           <p className="text-sm text-hub-muted">
-            No docs yet. Ask the assistant to turn an idea into a roadmap and
-            it'll show up here with an artifact ID.
+            No docs yet. Ask the assistant to turn an idea into a roadmap or a
+            build prompt — everything it writes lands here with an artifact ID
+            and a copy button, ready to paste to your coding agent.
           </p>
           <button
             onClick={() => onAsk("Help me turn one of my ideas into a project roadmap")}
@@ -59,10 +130,13 @@ export default function Artifacts({
           {artifacts.map((a) => {
             const meta = ARTIFACT_KIND_META[a.kind] || ARTIFACT_KIND_META.doc;
             return (
-              <button
+              <div
                 key={a.id}
                 onClick={() => setOpenId(a.id)}
-                className="card flex w-full items-center gap-3 p-3.5 text-left transition-colors active:bg-hub-panel2"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && setOpenId(a.id)}
+                className="card flex w-full cursor-pointer items-center gap-3 p-3.5 text-left transition-colors active:bg-hub-panel2"
               >
                 <span className="shrink-0 rounded-md border border-hub-border bg-hub-panel2 px-2 py-1 font-mono text-[11px] text-hub-muted">
                   A-{a.num}
@@ -79,8 +153,9 @@ export default function Artifacts({
                     <span>· {timeAgo(a.updatedAt)}</span>
                   </span>
                 </span>
+                <CopyButton text={a.content} compact />
                 <span className="text-hub-muted">›</span>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -158,11 +233,12 @@ function ArtifactView({
 
       {/* Actions */}
       <div className="mb-4 flex flex-wrap gap-2">
+        <CopyButton text={artifact.content} />
         <button
           onClick={() =>
             onAsk(`Let's refine artifact A-${artifact.num} (“${artifact.title}”). `)
           }
-          className="btn-primary py-1.5 text-xs"
+          className="btn-ghost py-1.5 text-xs"
         >
           ✦ Refine with AI
         </button>

@@ -44,7 +44,7 @@ export interface ChatMessageDTO {
   createdAt: string;
 }
 
-export type ArtifactKind = "roadmap" | "spec" | "note" | "doc";
+export type ArtifactKind = "roadmap" | "spec" | "note" | "doc" | "prompt";
 
 export interface ArtifactDTO {
   id: string;
@@ -83,6 +83,7 @@ export const ARTIFACT_KIND_META: Record<string, { label: string; badge: string }
   spec: { label: "Spec", badge: "text-sky-300 border-sky-700" },
   note: { label: "Note", badge: "text-amber-300 border-amber-700" },
   doc: { label: "Doc", badge: "text-slate-300 border-slate-600" },
+  prompt: { label: "Build Prompt", badge: "text-violet-300 border-violet-700" },
 };
 
 export const STATUS_META: Record<
