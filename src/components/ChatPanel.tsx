@@ -32,6 +32,69 @@ export default function ChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Text-to-speech
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const autoSpeakRef = useRef(false);
+  const [speakingIdx, setSpeakingIdx] = useState<number | null>(null);
+  const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const on = localStorage.getItem("hub_autospeak") === "1";
+    setAutoSpeak(on);
+    autoSpeakRef.current = on;
+  }, []);
+
+  function toggleAutoSpeak() {
+    setAutoSpeak((v) => {
+      const next = !v;
+      autoSpeakRef.current = next;
+      localStorage.setItem("hub_autospeak", next ? "1" : "0");
+      if (!next) stopSpeech();
+      return next;
+    });
+  }
+
+  function stopSpeech() {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setSpeakingIdx(null);
+  }
+
+  async function speak(text: string, idx: number) {
+    if (speakingIdx === idx) {
+      stopSpeech();
+      return;
+    }
+    stopSpeech();
+    if (!text.trim()) return;
+    setLoadingIdx(idx);
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        setSpeakingIdx((cur) => (cur === idx ? null : cur));
+      };
+      setSpeakingIdx(idx);
+      await audio.play();
+    } catch {
+      setSpeakingIdx(null);
+    } finally {
+      setLoadingIdx((cur) => (cur === idx ? null : cur));
+    }
+  }
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, streaming]);
@@ -58,12 +121,18 @@ export default function ChatPanel({
     if (!text || streaming) return;
     setError(null);
     setInput("");
-    setMessages((m) => [
-      ...m,
-      { role: "user", content: text },
-      { role: "assistant", content: "", actions: [] },
-    ]);
+    stopSpeech();
+    let assistantIdx = -1;
+    setMessages((m) => {
+      assistantIdx = m.length + 1;
+      return [
+        ...m,
+        { role: "user", content: text },
+        { role: "assistant", content: "", actions: [] },
+      ];
+    });
     setStreaming(true);
+    let spokenText = "";
 
     try {
       const res = await fetch("/api/chat", {
@@ -97,6 +166,7 @@ export default function ChatPanel({
         }
         if (ev.t === "text" && typeof ev.d === "string") {
           const d = ev.d as string;
+          spokenText += d;
           patchLast((m) => ({ ...m, content: m.content + d }));
         } else if (ev.t === "tool" && typeof ev.label === "string") {
           const label = ev.label as string;
@@ -130,6 +200,10 @@ export default function ChatPanel({
         }
         return m;
       });
+
+      if (autoSpeakRef.current && spokenText.trim()) {
+        speak(spokenText, assistantIdx);
+      }
     } catch {
       setError("Connection interrupted.");
       setMessages((m) =>
@@ -229,6 +303,27 @@ export default function ChatPanel({
                   )}
                 </div>
               )}
+              {m.role === "assistant" && m.content && !streaming && (
+                <button
+                  onClick={() => speak(m.content, i)}
+                  className={`mt-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs transition-colors ${
+                    speakingIdx === i
+                      ? "text-hub-accent"
+                      : "text-hub-muted hover:text-white"
+                  }`}
+                  aria-label={speakingIdx === i ? "Stop speaking" : "Speak reply"}
+                >
+                  {loadingIdx === i ? (
+                    "…"
+                  ) : speakingIdx === i ? (
+                    <>
+                      <SpeakerIcon /> Stop
+                    </>
+                  ) : (
+                    <SpeakerIcon />
+                  )}
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -242,6 +337,18 @@ export default function ChatPanel({
 
       <div className="border-t border-hub-border p-3">
         <div className="flex items-end gap-2">
+          <button
+            onClick={toggleAutoSpeak}
+            title={autoSpeak ? "Auto-speak on" : "Auto-speak off"}
+            aria-label="Toggle auto-speak"
+            className={`flex h-[44px] w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+              autoSpeak
+                ? "border-hub-accent bg-hub-accent/20 text-hub-accent"
+                : "border-hub-border bg-hub-panel2 text-hub-muted"
+            }`}
+          >
+            <SpeakerIcon />
+          </button>
           <textarea
             ref={inputRef}
             className="input max-h-32 min-h-[44px] resize-none"
@@ -273,5 +380,23 @@ export default function ChatPanel({
 function Dot() {
   return (
     <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-hub-muted" />
+  );
+}
+
+function SpeakerIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M11 5L6 9H2v6h4l5 4V5z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+    </svg>
   );
 }
