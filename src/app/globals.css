@@ -11,6 +11,10 @@ body {
   height: 100%;
 }
 
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   @apply bg-hub-bg text-slate-100 antialiased;
   background-image:
@@ -50,7 +54,8 @@ body {
     @apply btn border border-red-900/60 bg-red-950/40 text-red-300 hover:bg-red-900/40;
   }
   .input {
-    @apply w-full rounded-lg border border-hub-border bg-hub-bg/60 px-3 py-2 text-sm text-slate-100 placeholder:text-hub-muted focus:border-hub-accent focus:outline-none focus:ring-1 focus:ring-hub-accent;
+    /* text-base on mobile so iOS Safari doesn't auto-zoom on focus */
+    @apply w-full rounded-lg border border-hub-border bg-hub-bg/60 px-3 py-2 text-base text-slate-100 placeholder:text-hub-muted focus:border-hub-accent focus:outline-none focus:ring-1 focus:ring-hub-accent sm:text-sm;
   }
   .label {
     @apply mb-1 block text-xs font-medium uppercase tracking-wide text-hub-muted;
@@ -58,4 +63,38 @@ body {
   .chip {
     @apply inline-flex items-center rounded-full border border-hub-border bg-hub-panel2 px-2.5 py-0.5 text-xs text-slate-300;
   }
+}
+
+@layer utilities {
+  /* Safe-area padding for notches / home indicators (PWA standalone mode) */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pb-safe-lg {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 1.25rem);
+  }
+  /* Horizontal chip rows scroll without a visible scrollbar */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0.5;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.animate-sheet-up {
+  animation: sheet-up 0.22s ease-out;
 }

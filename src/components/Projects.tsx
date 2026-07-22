@@ -4,19 +4,7 @@ import { useState } from "react";
 import type { ProjectDTO, ProjectStatus } from "@/lib/types";
 import { STATUS_META, STATUS_ORDER } from "@/lib/types";
 import Modal from "@/components/Modal";
-
-function timeAgo(iso: string): string {
-  const d = new Date(iso).getTime();
-  const s = Math.floor((Date.now() - d) / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const days = Math.floor(h / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
+import { timeAgo } from "@/lib/time";
 
 const empty = {
   name: "",
@@ -115,8 +103,11 @@ export default function Projects({
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="mb-4 space-y-3">
+        <button onClick={openNew} className="btn-primary w-full py-2.5 sm:w-auto">
+          + New project
+        </button>
+        <div className="no-scrollbar -mx-4 flex items-center gap-1.5 overflow-x-auto px-4">
           <FilterChip
             active={filter === "ALL"}
             onClick={() => setFilter("ALL")}
@@ -135,9 +126,6 @@ export default function Projects({
             );
           })}
         </div>
-        <button onClick={openNew} className="btn-primary">
-          + New project
-        </button>
       </div>
 
       {shown.length === 0 ? (
@@ -250,7 +238,7 @@ function FilterChip({
   return (
     <button
       onClick={onClick}
-      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+      className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
         active
           ? "border-hub-accent bg-hub-accent/20 text-white"
           : "border-hub-border bg-hub-panel text-hub-muted hover:text-white"
@@ -326,7 +314,7 @@ function ProjectCard({
             <button
               onClick={() => onPatch({ pinned: !project.pinned })}
               title={project.pinned ? "Unpin" : "Pin"}
-              className={`text-sm ${project.pinned ? "text-amber-400" : "text-hub-muted hover:text-white"}`}
+              className={`-m-1 p-1 text-base ${project.pinned ? "text-amber-400" : "text-hub-muted hover:text-white"}`}
             >
               {project.pinned ? "★" : "☆"}
             </button>
@@ -402,7 +390,7 @@ function ProjectCard({
       ) : (
         <button
           onClick={() => setShowUpdate(true)}
-          className="mb-3 self-start text-xs text-hub-accent hover:underline"
+          className="-mx-1 mb-2 self-start rounded-md px-1 py-1.5 text-[13px] text-hub-accent hover:underline"
         >
           + Add update
         </button>
@@ -410,7 +398,7 @@ function ProjectCard({
 
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-hub-border pt-3">
         <select
-          className="rounded-md border border-hub-border bg-hub-bg/60 px-2 py-1 text-xs text-slate-200 focus:outline-none"
+          className="rounded-md border border-hub-border bg-hub-bg/60 px-2 py-1.5 text-xs text-slate-200 focus:outline-none"
           value={project.status}
           onChange={(e) => onPatch({ status: e.target.value })}
         >
@@ -423,13 +411,13 @@ function ProjectCard({
         <div className="flex gap-1">
           <button
             onClick={onEdit}
-            className="rounded-md px-2 py-1 text-xs text-hub-muted hover:bg-hub-border/50 hover:text-white"
+            className="rounded-md px-3 py-1.5 text-xs text-hub-muted hover:bg-hub-border/50 hover:text-white"
           >
             Edit
           </button>
           <button
             onClick={onDelete}
-            className="rounded-md px-2 py-1 text-xs text-red-400/80 hover:bg-red-950/40 hover:text-red-300"
+            className="rounded-md px-3 py-1.5 text-xs text-red-400/80 hover:bg-red-950/40 hover:text-red-300"
           >
             Delete
           </button>

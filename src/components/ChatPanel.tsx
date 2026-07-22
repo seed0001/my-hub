@@ -8,9 +8,13 @@ type Msg = { role: "user" | "assistant"; content: string };
 export default function ChatPanel({
   aiEnabled,
   initialMessages,
+  pendingPrompt,
+  onPromptConsumed,
 }: {
   aiEnabled: boolean;
   initialMessages: ChatMessageDTO[];
+  pendingPrompt?: string | null;
+  onPromptConsumed?: () => void;
 }) {
   const [messages, setMessages] = useState<Msg[]>(
     initialMessages.map((m) => ({ role: m.role, content: m.content }))
@@ -19,10 +23,20 @@ export default function ChatPanel({
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, streaming]);
+
+  // A suggestion tapped elsewhere (e.g. the Today screen) lands here.
+  useEffect(() => {
+    if (pendingPrompt) {
+      setInput(pendingPrompt);
+      onPromptConsumed?.();
+      inputRef.current?.focus();
+    }
+  }, [pendingPrompt, onPromptConsumed]);
 
   async function send() {
     const text = input.trim();
@@ -79,29 +93,20 @@ export default function ChatPanel({
 
   return (
     <div className="flex h-full flex-col bg-hub-panel/40">
-      <div className="flex items-center justify-between border-b border-hub-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-hub-accent to-hub-accent2 text-sm">
-            ✦
-          </div>
-          <div>
-            <p className="text-sm font-semibold leading-none">Hub Assistant</p>
-            <p className="mt-0.5 text-[11px] text-hub-muted">
-              Knows your projects & bookmarks
-            </p>
-          </div>
-        </div>
+      <div
+        ref={scrollRef}
+        className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4"
+      >
         {messages.length > 0 && (
-          <button
-            onClick={clearChat}
-            className="text-xs text-hub-muted hover:text-white"
-          >
-            Clear
-          </button>
+          <div className="flex justify-center">
+            <button
+              onClick={clearChat}
+              className="rounded-full border border-hub-border bg-hub-panel px-3 py-1 text-xs text-hub-muted transition-colors hover:text-white"
+            >
+              Clear conversation
+            </button>
+          </div>
         )}
-      </div>
-
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {messages.length === 0 && (
           <div className="mt-6 space-y-3 text-center">
             <div className="text-3xl">✦</div>
@@ -166,7 +171,8 @@ export default function ChatPanel({
       <div className="border-t border-hub-border p-3">
         <div className="flex items-end gap-2">
           <textarea
-            className="input max-h-32 min-h-[42px] resize-none"
+            ref={inputRef}
+            className="input max-h-32 min-h-[44px] resize-none"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {

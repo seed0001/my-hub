@@ -73,20 +73,23 @@ export default function Bookmarks({
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <input
-          className="input max-w-xs"
+          className="input sm:max-w-xs"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search bookmarks…"
         />
-        <button onClick={() => setModalOpen(true)} className="btn-primary">
+        <button
+          onClick={() => setModalOpen(true)}
+          className="btn-primary w-full py-2.5 sm:w-auto"
+        >
           + Add bookmark
         </button>
       </div>
 
       {categories.length > 0 && (
-        <div className="mb-5 flex flex-wrap gap-1.5">
+        <div className="no-scrollbar -mx-4 mb-4 flex gap-1.5 overflow-x-auto px-4">
           <CatChip
             active={activeCat === "ALL"}
             onClick={() => setActiveCat("ALL")}
@@ -179,7 +182,7 @@ export default function Bookmarks({
               </div>
               <button
                 onClick={() => remove(b.id)}
-                className="shrink-0 rounded-md p-1 text-hub-muted opacity-0 transition-opacity hover:bg-red-950/40 hover:text-red-300 group-hover:opacity-100"
+                className="shrink-0 rounded-md p-1.5 text-hub-muted transition-opacity hover:bg-red-950/40 hover:text-red-300 sm:opacity-0 sm:group-hover:opacity-100"
                 title="Delete"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -267,7 +270,7 @@ function CatChip({
   return (
     <button
       onClick={onClick}
-      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+      className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
         active
           ? "border-hub-accent bg-hub-accent/20 text-white"
           : "border-hub-border bg-hub-panel text-hub-muted hover:text-white"

@@ -26,13 +26,15 @@ export default function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-start sm:overflow-y-auto sm:p-4"
       onMouseDown={onClose}
     >
       <div
-        className="card mt-16 w-full max-w-lg p-6 shadow-2xl"
+        className="card animate-sheet-up max-h-[92dvh] w-full overflow-y-auto overscroll-contain rounded-b-none rounded-t-2xl p-5 pb-safe-lg shadow-2xl sm:mt-16 sm:max-w-lg sm:rounded-xl sm:p-6"
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {/* Drag-handle affordance on mobile */}
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-hub-border sm:hidden" />
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button
