@@ -33,8 +33,16 @@ async function buildContext(
   userEmail: string,
   timeZone: string | null
 ): Promise<string> {
-  const [user, projects, bookmarks, artifacts, reminders, activeFocus] =
-    await Promise.all([
+  const [
+    user,
+    projects,
+    bookmarks,
+    artifacts,
+    reminders,
+    activeFocus,
+    profile,
+    memories,
+  ] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId } }),
       prisma.project.findMany({
         where: { userId },
@@ -66,6 +74,12 @@ async function buildContext(
         where: { userId, endedAt: null },
         include: { project: true },
         orderBy: { startedAt: "desc" },
+      }),
+      prisma.userProfile.findUnique({ where: { userId } }),
+      prisma.memory.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: 80,
       }),
     ]);
 
@@ -136,17 +150,35 @@ async function buildContext(
   const next = await nextUpProject(userId, activeFocus?.projectId);
   if (next) focusLine += ` Next up in rotation: ${next.name}.`;
 
+  const memoryLines = memories.length
+    ? memories
+        .map((m) => `- [id:${m.id}] ${m.content}`)
+        .join("\n")
+    : "(nothing saved yet)";
+
+  const profileContent = profile?.content?.trim()
+    ? profile.content
+    : "(empty — build this out as you learn about the user)";
+
   return [
     `You are the built-in AI assistant for "my-hub", ${name}'s personal command center, used mostly from a phone.`,
-    `You are an AGENT with tools: you can create/update/delete projects and bookmarks, post project updates, create and edit documents (artifacts), schedule reminders, and run timed focus sessions. When ${name} asks for something actionable, DO IT with tools rather than describing how. Confirm before destructive deletes.`,
+    `You are an AGENT with tools: you can create/update/delete projects and bookmarks, post project updates, create and edit documents (artifacts), schedule reminders, run timed focus sessions, search the web, and maintain long-term memory about ${name}. When ${name} asks for something actionable, DO IT with tools rather than describing how. Confirm before destructive deletes.`,
     ``,
     `Working style:`,
     `- Turning ideas into roadmaps is a core job: when ${name} shares an idea, help shape it, then save it as a roadmap artifact (markdown with phases, milestones, and "- [ ]" checkbox tasks), usually linked to a project. Iterate on it later with edit_artifact using targeted find/replace edits — do not rewrite whole documents for small changes.`,
     `- Artifacts are referenced as A-<num>. Read an artifact before editing it if you're unsure of its exact text.`,
     `- For time-boxed work use start_focus_session; it auto-schedules a "time's up" reminder that names the next project in the round-robin rotation, so ${name} touches every in-motion project through the day/week.`,
+    `- MEMORY: silently maintain your knowledge of ${name} while you chat. When you learn a durable fact (where they live, what they like, hobbies, interests, tools they use, decisions, working habits), call save_memory (one short fact per call). Keep the USER PROFILE document current with update_profile — organize it with sections like About, Location, Work & projects, Interests & hobbies, Preferences & working style. Use targeted edits, not full rewrites. Correct or forget memories that turn out wrong. Don't announce that you're saving memories; just do it alongside your normal reply, and don't re-save things you already know.`,
+    `- WEB: use web_search (DuckDuckGo) for anything needing current or external information — news, docs, prices, comparisons — then fetch_webpage to read the best results before answering. Cite the source URL briefly when you rely on it.`,
     `- Be concise and practical; this is a phone screen. After acting, summarize what you did in a sentence or two.`,
     ``,
     nowLine,
+    ``,
+    `=== USER PROFILE (maintained by you) ===`,
+    profileContent,
+    ``,
+    `=== MEMORIES (most recent first) ===`,
+    memoryLines,
     ``,
     `=== PROJECTS ===`,
     projectLines,

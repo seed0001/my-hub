@@ -21,6 +21,8 @@ model User {
   reminders     Reminder[]
   focusSessions FocusSession[]
   pushSubs      PushSubscription[]
+  memories      Memory[]
+  profile       UserProfile?
 }
 
 enum ProjectStatus {
@@ -125,6 +127,27 @@ model FocusSession {
   endedAt   DateTime?
 
   @@index([userId, startedAt])
+}
+
+// One durable fact the assistant has learned (preferences, context, etc.).
+model Memory {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// A living markdown profile of the user, maintained by the assistant:
+// who they are, where they live, interests, hobbies, working style.
+model UserProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @default("") @db.Text
+  updatedAt DateTime @updatedAt
 }
 
 model PushSubscription {

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { ddgSearch, fetchPageText } from "@/lib/webSearch";
 
 /**
  * The assistant's hands: tool definitions (OpenAI function-calling format)
@@ -337,6 +338,95 @@ export const TOOL_DEFS = [
       description:
         "Get the current focus session (if any) and the round-robin rotation order of in-motion projects.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "save_memory",
+      description:
+        "Save one short durable fact about the user to persistent memory (a preference, habit, personal detail, decision, or ongoing context). One fact per call. Don't save things already in memory or the profile.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "The fact, phrased briefly in third person",
+          },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "forget_memory",
+      description:
+        "Delete a memory by its id (shown in the MEMORIES context) when it's wrong or outdated.",
+      parameters: {
+        type: "object",
+        properties: { memoryId: { type: "string" } },
+        required: ["memoryId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_profile",
+      description:
+        "Maintain the user's living profile document (markdown). Use targeted find/replace edits or append for small changes; use content for a full rewrite/first creation. The current profile is in your context. Keep sections like: About, Location, Work & projects, Interests & hobbies, Preferences & working style.",
+      parameters: {
+        type: "object",
+        properties: {
+          edits: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                find: { type: "string" },
+                replace: { type: "string" },
+              },
+              required: ["find", "replace"],
+            },
+          },
+          append: { type: "string" },
+          content: {
+            type: "string",
+            description: "Full replacement content",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "Search the internet with DuckDuckGo. Returns titles, URLs, and snippets. Follow up with fetch_webpage to read a promising result.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          maxResults: { type: "integer", description: "Default 6, max 10" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "fetch_webpage",
+      description:
+        "Fetch a URL and return its readable text content (truncated to ~8k chars).",
+      parameters: {
+        type: "object",
+        properties: { url: { type: "string" } },
+        required: ["url"],
+      },
     },
   },
 ] as const;
@@ -779,6 +869,109 @@ export async function executeTool(
             nextUp: next ? { projectId: next.id, name: next.name } : null,
           },
         };
+      }
+
+      case "save_memory": {
+        const content = str(args.content)?.trim();
+        if (!content) return { result: { error: "content is required" } };
+        const memory = await prisma.memory.create({
+          data: { userId, content },
+        });
+        return {
+          result: { ok: true, memoryId: memory.id },
+          label: `Remembered: ${content.length > 60 ? content.slice(0, 60) + "…" : content}`,
+        };
+      }
+
+      case "forget_memory": {
+        const id = str(args.memoryId);
+        const existing = id
+          ? await prisma.memory.findFirst({ where: { id, userId } })
+          : null;
+        if (!existing) return { result: { error: "Memory not found" } };
+        await prisma.memory.delete({ where: { id: existing.id } });
+        return {
+          result: { ok: true },
+          label: `Forgot: ${existing.content.length > 60 ? existing.content.slice(0, 60) + "…" : existing.content}`,
+        };
+      }
+
+      case "update_profile": {
+        const existing = await prisma.userProfile.findUnique({
+          where: { userId },
+        });
+        let content = existing?.content || "";
+        const failed: string[] = [];
+
+        if (str(args.content) !== undefined && str(args.content) !== "") {
+          content = str(args.content)!;
+        } else if (Array.isArray(args.edits)) {
+          for (const e of args.edits) {
+            const find = typeof e?.find === "string" ? e.find : null;
+            const replace = typeof e?.replace === "string" ? e.replace : "";
+            if (!find) continue;
+            if (!content.includes(find)) {
+              failed.push(find.slice(0, 80));
+              continue;
+            }
+            content = content.replace(find, replace);
+          }
+        }
+        if (str(args.append)) {
+          content = (content.trimEnd() + "\n\n" + str(args.append)).trim();
+        }
+
+        await prisma.userProfile.upsert({
+          where: { userId },
+          create: { userId, content },
+          update: { content },
+        });
+        return {
+          result: {
+            ok: failed.length === 0,
+            ...(failed.length
+              ? {
+                  warning: `These find strings didn't match the profile and were skipped: ${failed.join(" | ")}`,
+                }
+              : {}),
+          },
+          label: "Updated your profile",
+        };
+      }
+
+      case "web_search": {
+        const query = str(args.query)?.trim();
+        if (!query) return { result: { error: "query is required" } };
+        const max = Math.min(Math.max(num(args.maxResults) ?? 6, 1), 10);
+        try {
+          const results = await ddgSearch(query, max);
+          return {
+            result: { query, results },
+            label: `Searched the web: “${query}”`,
+          };
+        } catch (err) {
+          console.error("web_search failed", err);
+          return { result: { error: "Web search failed. Try again or rephrase." } };
+        }
+      }
+
+      case "fetch_webpage": {
+        const url = str(args.url)?.trim();
+        if (!url) return { result: { error: "url is required" } };
+        try {
+          const page = await fetchPageText(url);
+          let host = url;
+          try {
+            host = new URL(page.url).hostname;
+          } catch {}
+          return {
+            result: page,
+            label: `Read ${host}`,
+          };
+        } catch (err) {
+          console.error("fetch_webpage failed", err);
+          return { result: { error: `Couldn't fetch that page.` } };
+        }
       }
 
       default:

@@ -13,6 +13,7 @@ import Bookmarks from "@/components/Bookmarks";
 import ChatPanel from "@/components/ChatPanel";
 import Today from "@/components/Today";
 import Artifacts from "@/components/Artifacts";
+import ProfileSheet from "@/components/ProfileSheet";
 
 type Tab = "today" | "chat" | "projects" | "docs" | "bookmarks";
 
@@ -51,6 +52,7 @@ export default function Dashboard({
   const [focusTick, setFocusTick] = useState(0);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [dueAlerts, setDueAlerts] = useState<ReminderDTO[]>([]);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const displayName = userName || userEmail.split("@")[0];
 
@@ -154,7 +156,28 @@ export default function Dashboard({
             </div>
             <h1 className="font-semibold">{TAB_TITLES[tab]}</h1>
           </div>
-          <button
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setProfileOpen(true)}
+              className="rounded-lg p-2 text-hub-muted transition-colors hover:bg-hub-border/50 hover:text-white"
+              aria-label="Your profile"
+              title="Your profile"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" />
+              </svg>
+            </button>
+            <button
             onClick={logout}
             className="rounded-lg p-2 text-hub-muted transition-colors hover:bg-hub-border/50 hover:text-white"
             aria-label="Sign out"
@@ -175,8 +198,11 @@ export default function Dashboard({
               <path d="M21 12H9" />
             </svg>
           </button>
+          </div>
         </div>
       </header>
+
+      <ProfileSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
 
       {/* Due-reminder banners */}
       {dueAlerts.length > 0 && (
