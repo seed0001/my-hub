@@ -32,6 +32,9 @@ Copy `.env.example` to `.env` for local dev, and set these in Railway for produc
 | `OPENROUTER_API_KEY` | ✅ (for AI) | Get one at https://openrouter.ai/keys |
 | `OPENROUTER_MODEL` | ⬜ | Model slug, e.g. `anthropic/claude-3.5-sonnet` (default) or `openai/gpt-4o-mini`. Browse https://openrouter.ai/models |
 | `APP_URL` | ⬜ | Your public URL, used for OpenRouter attribution headers. |
+| `VAPID_PUBLIC_KEY` | ⬜ | Web-push public key for reminder notifications. Generate: `npx web-push generate-vapid-keys` |
+| `VAPID_PRIVATE_KEY` | ⬜ | Web-push private key (keep secret). |
+| `VAPID_SUBJECT` | ⬜ | Contact for push, e.g. `mailto:you@example.com`. |
 
 ---
 

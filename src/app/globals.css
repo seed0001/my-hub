@@ -85,6 +85,72 @@ body {
   }
 }
 
+/* Rendered markdown (artifact docs) */
+.markdown {
+  @apply text-sm leading-relaxed text-slate-200;
+  overflow-wrap: anywhere;
+}
+.markdown h1 {
+  @apply mb-2 mt-4 text-lg font-semibold text-white first:mt-0;
+}
+.markdown h2 {
+  @apply mb-2 mt-4 text-base font-semibold text-white first:mt-0;
+}
+.markdown h3 {
+  @apply mb-1.5 mt-3 text-sm font-semibold text-white first:mt-0;
+}
+.markdown p {
+  @apply mb-2.5;
+}
+.markdown ul,
+.markdown ol {
+  @apply mb-2.5 space-y-1 pl-5;
+}
+.markdown ul {
+  @apply list-disc;
+}
+.markdown ol {
+  @apply list-decimal;
+}
+.markdown li > ul,
+.markdown li > ol {
+  @apply mb-0 mt-1;
+}
+.markdown input[type="checkbox"] {
+  @apply mr-1.5 accent-hub-accent align-middle;
+}
+.markdown ul:has(input[type="checkbox"]) {
+  @apply list-none pl-1;
+}
+.markdown code {
+  @apply rounded bg-hub-bg/80 px-1 py-0.5 font-mono text-[13px] text-indigo-300;
+}
+.markdown pre {
+  @apply mb-2.5 overflow-x-auto rounded-lg border border-hub-border bg-hub-bg/80 p-3;
+}
+.markdown pre code {
+  @apply bg-transparent p-0;
+}
+.markdown blockquote {
+  @apply mb-2.5 border-l-2 border-hub-accent/60 pl-3 text-slate-300;
+}
+.markdown a {
+  @apply text-hub-accent underline;
+}
+.markdown table {
+  @apply mb-2.5 w-full border-collapse text-xs;
+}
+.markdown th,
+.markdown td {
+  @apply border border-hub-border px-2 py-1 text-left;
+}
+.markdown th {
+  @apply bg-hub-panel2 font-semibold;
+}
+.markdown hr {
+  @apply my-3 border-hub-border;
+}
+
 @keyframes sheet-up {
   from {
     transform: translateY(24px);

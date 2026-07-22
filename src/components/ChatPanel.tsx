@@ -3,18 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessageDTO } from "@/lib/types";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  /** Live tool-action labels (e.g. Created project “X”) for this reply. */
+  actions?: string[];
+};
 
 export default function ChatPanel({
   aiEnabled,
   initialMessages,
   pendingPrompt,
   onPromptConsumed,
+  onRefresh,
 }: {
   aiEnabled: boolean;
   initialMessages: ChatMessageDTO[];
   pendingPrompt?: string | null;
   onPromptConsumed?: () => void;
+  onRefresh?: (scopes: string[]) => void;
 }) {
   const [messages, setMessages] = useState<Msg[]>(
     initialMessages.map((m) => ({ role: m.role, content: m.content }))
@@ -38,25 +45,39 @@ export default function ChatPanel({
     }
   }, [pendingPrompt, onPromptConsumed]);
 
+  function patchLast(fn: (m: Msg) => Msg) {
+    setMessages((prev) => {
+      const copy = [...prev];
+      copy[copy.length - 1] = fn(copy[copy.length - 1]);
+      return copy;
+    });
+  }
+
   async function send() {
     const text = input.trim();
     if (!text || streaming) return;
     setError(null);
     setInput("");
-    setMessages((m) => [...m, { role: "user", content: text }, { role: "assistant", content: "" }]);
+    setMessages((m) => [
+      ...m,
+      { role: "user", content: text },
+      { role: "assistant", content: "", actions: [] },
+    ]);
     setStreaming(true);
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({
+          message: text,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       });
 
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
         setError(data.error || "The assistant couldn't respond.");
-        // Drop the empty assistant placeholder.
         setMessages((m) => m.slice(0, -1));
         setStreaming(false);
         return;
@@ -64,22 +85,56 @@ export default function ChatPanel({
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
+
+      const handle = (line: string) => {
+        if (!line.trim()) return;
+        let ev: { t: string; [k: string]: unknown };
+        try {
+          ev = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (ev.t === "text" && typeof ev.d === "string") {
+          const d = ev.d as string;
+          patchLast((m) => ({ ...m, content: m.content + d }));
+        } else if (ev.t === "tool" && typeof ev.label === "string") {
+          const label = ev.label as string;
+          patchLast((m) => ({ ...m, actions: [...(m.actions || []), label] }));
+        } else if (ev.t === "refresh" && Array.isArray(ev.scopes)) {
+          onRefresh?.(ev.scopes as string[]);
+        } else if (ev.t === "error" && typeof ev.message === "string") {
+          setError(ev.message as string);
+        }
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        setMessages((m) => {
-          const copy = [...m];
-          copy[copy.length - 1] = {
-            role: "assistant",
-            content: copy[copy.length - 1].content + chunk,
-          };
-          return copy;
-        });
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        lines.forEach(handle);
       }
+      if (buffer.trim()) handle(buffer);
+
+      // Drop the bubble if nothing at all came back.
+      setMessages((m) => {
+        const last = m[m.length - 1];
+        if (
+          last?.role === "assistant" &&
+          !last.content &&
+          !(last.actions && last.actions.length)
+        ) {
+          return m.slice(0, -1);
+        }
+        return m;
+      });
     } catch {
       setError("Connection interrupted.");
-      setMessages((m) => (m[m.length - 1]?.content === "" ? m.slice(0, -1) : m));
+      setMessages((m) =>
+        m[m.length - 1]?.content === "" ? m.slice(0, -1) : m
+      );
     } finally {
       setStreaming(false);
     }
@@ -111,8 +166,8 @@ export default function ChatPanel({
           <div className="mt-6 space-y-3 text-center">
             <div className="text-3xl">✦</div>
             <p className="text-sm text-hub-muted">
-              Ask me to summarize your projects, suggest what to work on next, or
-              help you organize your bookmarks.
+              I can act on your hub: create projects, draft roadmap docs,
+              save bookmarks, set reminders, and run focus sessions.
             </p>
             {!aiEnabled && (
               <p className="mx-auto max-w-xs rounded-lg border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
@@ -123,9 +178,9 @@ export default function ChatPanel({
             {aiEnabled && (
               <div className="flex flex-col gap-2">
                 {[
+                  "Turn my latest idea into a project roadmap",
                   "What should I focus on today?",
-                  "Summarize the status of all my projects",
-                  "Which projects have been paused?",
+                  "Start a 25 minute focus session on my top project",
                 ].map((s) => (
                   <button
                     key={s}
@@ -145,17 +200,34 @@ export default function ChatPanel({
             key={i}
             className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
           >
-            <div
-              className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${
-                m.role === "user"
-                  ? "bg-hub-accent text-white"
-                  : "border border-hub-border bg-hub-panel text-slate-200"
-              }`}
-            >
-              {m.content || (
-                <span className="inline-flex gap-1">
-                  <Dot /> <Dot /> <Dot />
-                </span>
+            <div className="max-w-[85%]">
+              {m.actions && m.actions.length > 0 && (
+                <div className="mb-1.5 space-y-1">
+                  {m.actions.map((a, j) => (
+                    <div
+                      key={j}
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-900/50 bg-emerald-950/30 px-2.5 py-1.5 text-xs text-emerald-300"
+                    >
+                      <span>✓</span>
+                      <span className="min-w-0 flex-1">{a}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(m.content || !m.actions?.length) && (
+                <div
+                  className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${
+                    m.role === "user"
+                      ? "bg-hub-accent text-white"
+                      : "border border-hub-border bg-hub-panel text-slate-200"
+                  }`}
+                >
+                  {m.content || (
+                    <span className="inline-flex gap-1">
+                      <Dot /> <Dot /> <Dot />
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>

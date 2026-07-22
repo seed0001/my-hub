@@ -14,9 +14,13 @@ model User {
   passwordHash String
   createdAt    DateTime  @default(now())
 
-  projects  Project[]
-  bookmarks Bookmark[]
-  messages  ChatMessage[]
+  projects      Project[]
+  bookmarks     Bookmark[]
+  messages      ChatMessage[]
+  artifacts     Artifact[]
+  reminders     Reminder[]
+  focusSessions FocusSession[]
+  pushSubs      PushSubscription[]
 }
 
 enum ProjectStatus {
@@ -42,7 +46,10 @@ model Project {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  updates ProjectUpdate[]
+  updates       ProjectUpdate[]
+  artifacts     Artifact[]
+  reminders     Reminder[]
+  focusSessions FocusSession[]
 
   @@index([userId])
 }
@@ -67,6 +74,66 @@ model Bookmark {
   category  String? // free-form grouping, e.g. "Tools", "Reading"
   tags      String[] @default([])
   favicon   String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// A document the assistant (or the user) creates: roadmaps, specs, notes.
+// `num` is a friendly sequential ID surfaced as "A-12" in the catalog.
+model Artifact {
+  id        String   @id @default(cuid())
+  num       Int      @unique @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  kind      String   @default("doc") // roadmap | spec | note | doc
+  content   String   @db.Text // markdown
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+model Reminder {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String?   @db.Text
+  dueAt     DateTime
+  status    String    @default("PENDING") // PENDING | SENT | DONE | DISMISSED
+  projectId String?
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt DateTime  @default(now())
+
+  @@index([userId, status, dueAt])
+}
+
+// One timed work block on a project. Round-robin "next up" is the
+// in-motion project whose latest session is oldest (or has none).
+model FocusSession {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  minutes   Int
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  @@index([userId, startedAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
   createdAt DateTime @default(now())
 
   @@index([userId])

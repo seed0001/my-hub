@@ -1,18 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import type { ProjectDTO, BookmarkDTO, ChatMessageDTO } from "@/lib/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  ProjectDTO,
+  BookmarkDTO,
+  ChatMessageDTO,
+  ArtifactDTO,
+  ReminderDTO,
+} from "@/lib/types";
 import Projects from "@/components/Projects";
 import Bookmarks from "@/components/Bookmarks";
 import ChatPanel from "@/components/ChatPanel";
 import Today from "@/components/Today";
+import Artifacts from "@/components/Artifacts";
 
-type Tab = "today" | "chat" | "projects" | "bookmarks";
+type Tab = "today" | "chat" | "projects" | "docs" | "bookmarks";
 
 const TAB_TITLES: Record<Tab, string> = {
   today: "My Hub",
   chat: "Assistant",
   projects: "Projects",
+  docs: "Docs",
   bookmarks: "Bookmarks",
 };
 
@@ -23,6 +31,8 @@ export default function Dashboard({
   initialProjects,
   initialBookmarks,
   initialMessages,
+  initialArtifacts,
+  initialReminders,
 }: {
   userName: string | null;
   userEmail: string;
@@ -30,11 +40,17 @@ export default function Dashboard({
   initialProjects: ProjectDTO[];
   initialBookmarks: BookmarkDTO[];
   initialMessages: ChatMessageDTO[];
+  initialArtifacts: ArtifactDTO[];
+  initialReminders: ReminderDTO[];
 }) {
   const [tab, setTab] = useState<Tab>("today");
   const [projects, setProjects] = useState(initialProjects);
   const [bookmarks, setBookmarks] = useState(initialBookmarks);
+  const [artifacts, setArtifacts] = useState(initialArtifacts);
+  const [reminders, setReminders] = useState(initialReminders);
+  const [focusTick, setFocusTick] = useState(0);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [dueAlerts, setDueAlerts] = useState<ReminderDTO[]>([]);
 
   const displayName = userName || userEmail.split("@")[0];
 
@@ -46,6 +62,85 @@ export default function Dashboard({
   function askAssistant(prompt: string) {
     setPendingPrompt(prompt);
     setTab("chat");
+  }
+
+  /** Refetch data scopes the assistant (or a poller) says have changed. */
+  const refresh = useCallback(async (scopes: string[]) => {
+    const jobs: Promise<void>[] = [];
+    if (scopes.includes("projects"))
+      jobs.push(
+        fetch("/api/projects")
+          .then((r) => r.json())
+          .then((d) => d.projects && setProjects(d.projects))
+      );
+    if (scopes.includes("bookmarks"))
+      jobs.push(
+        fetch("/api/bookmarks")
+          .then((r) => r.json())
+          .then((d) => d.bookmarks && setBookmarks(d.bookmarks))
+      );
+    if (scopes.includes("artifacts"))
+      jobs.push(
+        fetch("/api/artifacts")
+          .then((r) => r.json())
+          .then((d) => d.artifacts && setArtifacts(d.artifacts))
+      );
+    if (scopes.includes("reminders"))
+      jobs.push(
+        fetch("/api/reminders")
+          .then((r) => r.json())
+          .then((d) => d.reminders && setReminders(d.reminders))
+      );
+    if (scopes.includes("focus")) setFocusTick((t) => t + 1);
+    await Promise.allSettled(jobs);
+  }, []);
+
+  // Poll for due reminders so the phone buzzes even without push set up.
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  useEffect(() => {
+    let stopped = false;
+    async function check() {
+      try {
+        const res = await fetch("/api/reminders?due=1");
+        if (!res.ok) return;
+        const data = await res.json();
+        const due: ReminderDTO[] = data.reminders || [];
+        if (stopped || due.length === 0) return;
+        setDueAlerts((prev) => [...prev, ...due]);
+        refreshRef.current(["reminders", "focus"]);
+        if (
+          typeof Notification !== "undefined" &&
+          Notification.permission === "granted"
+        ) {
+          for (const r of due) {
+            try {
+              new Notification(r.title, { body: r.body || undefined });
+            } catch {
+              // Some mobile browsers only allow notifications via the SW.
+            }
+          }
+        }
+      } catch {
+        // Offline — try again next tick.
+      }
+    }
+    check();
+    const iv = setInterval(check, 30_000);
+    return () => {
+      stopped = true;
+      clearInterval(iv);
+    };
+  }, []);
+
+  async function resolveAlert(r: ReminderDTO, status: "DONE" | "DISMISSED") {
+    setDueAlerts((prev) => prev.filter((a) => a.id !== r.id));
+    await fetch(`/api/reminders/${r.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    refresh(["reminders"]);
   }
 
   return (
@@ -83,6 +178,38 @@ export default function Dashboard({
         </div>
       </header>
 
+      {/* Due-reminder banners */}
+      {dueAlerts.length > 0 && (
+        <div className="shrink-0 space-y-1.5 border-b border-hub-border/60 bg-hub-panel/80 px-4 py-2">
+          {dueAlerts.slice(0, 3).map((r) => (
+            <div
+              key={r.id}
+              className="flex items-center gap-2.5 rounded-lg border border-hub-accent/40 bg-hub-accent/10 px-3 py-2"
+            >
+              <span className="text-base">⏰</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{r.title}</p>
+                {r.body && (
+                  <p className="truncate text-xs text-hub-muted">{r.body}</p>
+                )}
+              </div>
+              <button
+                onClick={() => resolveAlert(r, "DONE")}
+                className="rounded-md px-2 py-1 text-xs font-medium text-emerald-300"
+              >
+                Done
+              </button>
+              <button
+                onClick={() => resolveAlert(r, "DISMISSED")}
+                className="rounded-md px-2 py-1 text-xs text-hub-muted"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Content */}
       <main className="min-h-0 flex-1">
         {/* Chat stays mounted so a streaming reply survives tab switches. */}
@@ -92,6 +219,7 @@ export default function Dashboard({
             initialMessages={initialMessages}
             pendingPrompt={pendingPrompt}
             onPromptConsumed={() => setPendingPrompt(null)}
+            onRefresh={refresh}
           />
         </div>
         {tab !== "chat" && (
@@ -102,12 +230,22 @@ export default function Dashboard({
                 aiEnabled={aiEnabled}
                 projects={projects}
                 bookmarks={bookmarks}
+                reminders={reminders}
+                setReminders={setReminders}
+                focusTick={focusTick}
                 onAsk={askAssistant}
                 onNavigate={setTab}
               />
             )}
             {tab === "projects" && (
               <Projects projects={projects} setProjects={setProjects} />
+            )}
+            {tab === "docs" && (
+              <Artifacts
+                artifacts={artifacts}
+                setArtifacts={setArtifacts}
+                onAsk={askAssistant}
+              />
             )}
             {tab === "bookmarks" && (
               <Bookmarks bookmarks={bookmarks} setBookmarks={setBookmarks} />
@@ -118,7 +256,7 @@ export default function Dashboard({
 
       {/* Bottom tab bar */}
       <nav className="shrink-0 border-t border-hub-border bg-hub-panel/90 pb-safe backdrop-blur">
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           <TabButton
             active={tab === "today"}
             label="Today"
@@ -138,8 +276,14 @@ export default function Dashboard({
             icon={<FolderIcon />}
           />
           <TabButton
+            active={tab === "docs"}
+            label="Docs"
+            onClick={() => setTab("docs")}
+            icon={<DocIcon />}
+          />
+          <TabButton
             active={tab === "bookmarks"}
-            label="Bookmarks"
+            label="Marks"
             onClick={() => setTab("bookmarks")}
             icon={<BookmarkIcon />}
           />
@@ -207,6 +351,15 @@ function FolderIcon() {
   return (
     <svg {...iconProps}>
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+  );
+}
+
+function DocIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6M9 13h6M9 17h6" />
     </svg>
   );
 }

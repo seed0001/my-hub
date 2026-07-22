@@ -2,7 +2,13 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import Dashboard from "@/components/Dashboard";
-import type { ProjectDTO, BookmarkDTO, ChatMessageDTO } from "@/lib/types";
+import type {
+  ProjectDTO,
+  BookmarkDTO,
+  ChatMessageDTO,
+  ArtifactDTO,
+  ReminderDTO,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -10,23 +16,35 @@ export default async function HomePage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const [user, projects, bookmarks, messages] = await Promise.all([
-    prisma.user.findUnique({ where: { id: session.userId } }),
-    prisma.project.findMany({
-      where: { userId: session.userId },
-      orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
-      include: { updates: { orderBy: { createdAt: "desc" }, take: 5 } },
-    }),
-    prisma.bookmark.findMany({
-      where: { userId: session.userId },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.chatMessage.findMany({
-      where: { userId: session.userId },
-      orderBy: { createdAt: "asc" },
-      take: 200,
-    }),
-  ]);
+  const [user, projects, bookmarks, messages, artifacts, reminders] =
+    await Promise.all([
+      prisma.user.findUnique({ where: { id: session.userId } }),
+      prisma.project.findMany({
+        where: { userId: session.userId },
+        orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
+        include: { updates: { orderBy: { createdAt: "desc" }, take: 5 } },
+      }),
+      prisma.bookmark.findMany({
+        where: { userId: session.userId },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.chatMessage.findMany({
+        where: { userId: session.userId },
+        orderBy: { createdAt: "asc" },
+        take: 200,
+      }),
+      prisma.artifact.findMany({
+        where: { userId: session.userId },
+        orderBy: { updatedAt: "desc" },
+        include: { project: { select: { id: true, name: true } } },
+      }),
+      prisma.reminder.findMany({
+        where: { userId: session.userId, status: { in: ["PENDING", "SENT"] } },
+        orderBy: { dueAt: "asc" },
+        take: 50,
+        include: { project: { select: { id: true, name: true } } },
+      }),
+    ]);
 
   const aiEnabled = Boolean(process.env.OPENROUTER_API_KEY);
 
@@ -67,6 +85,29 @@ export default async function HomePage() {
     createdAt: m.createdAt.toISOString(),
   }));
 
+  const artifactDTOs: ArtifactDTO[] = artifacts.map((a) => ({
+    id: a.id,
+    num: a.num,
+    title: a.title,
+    kind: a.kind,
+    content: a.content,
+    projectId: a.projectId,
+    project: a.project,
+    createdAt: a.createdAt.toISOString(),
+    updatedAt: a.updatedAt.toISOString(),
+  }));
+
+  const reminderDTOs: ReminderDTO[] = reminders.map((r) => ({
+    id: r.id,
+    title: r.title,
+    body: r.body,
+    dueAt: r.dueAt.toISOString(),
+    status: r.status,
+    projectId: r.projectId,
+    project: r.project,
+    createdAt: r.createdAt.toISOString(),
+  }));
+
   return (
     <Dashboard
       userName={user?.name || null}
@@ -75,6 +116,8 @@ export default async function HomePage() {
       initialProjects={projectDTOs}
       initialBookmarks={bookmarkDTOs}
       initialMessages={messageDTOs}
+      initialArtifacts={artifactDTOs}
+      initialReminders={reminderDTOs}
     />
   );
 }

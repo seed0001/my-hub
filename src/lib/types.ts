@@ -44,6 +44,47 @@ export interface ChatMessageDTO {
   createdAt: string;
 }
 
+export type ArtifactKind = "roadmap" | "spec" | "note" | "doc";
+
+export interface ArtifactDTO {
+  id: string;
+  num: number;
+  title: string;
+  kind: string;
+  content: string;
+  projectId: string | null;
+  project: { id: string; name: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReminderDTO {
+  id: string;
+  title: string;
+  body: string | null;
+  dueAt: string;
+  status: string; // PENDING | SENT | DONE | DISMISSED
+  projectId: string | null;
+  project: { id: string; name: string } | null;
+  createdAt: string;
+}
+
+export interface FocusSessionDTO {
+  id: string;
+  projectId: string;
+  project: { id: string; name: string };
+  minutes: number;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+export const ARTIFACT_KIND_META: Record<string, { label: string; badge: string }> = {
+  roadmap: { label: "Roadmap", badge: "text-emerald-300 border-emerald-700" },
+  spec: { label: "Spec", badge: "text-sky-300 border-sky-700" },
+  note: { label: "Note", badge: "text-amber-300 border-amber-700" },
+  doc: { label: "Doc", badge: "text-slate-300 border-slate-600" },
+};
+
 export const STATUS_META: Record<
   ProjectStatus,
   { label: string; dot: string; badge: string }
