@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessageDTO } from "@/lib/types";
+import { cleanForSpeech } from "@/lib/speechText";
 
 type Msg = {
   role: "user" | "assistant";
@@ -90,11 +91,35 @@ export default function ChatPanel({
       URL.revokeObjectURL(blobUrlRef.current);
       blobUrlRef.current = null;
     }
+    if (typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
     setSpeakingIdx(null);
   }
 
+  /** Fallback: the phone's own TTS engine (Google voices on Android). */
+  function speakWithDevice(text: string, idx: number): boolean {
+    if (typeof speechSynthesis === "undefined") return false;
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "en-US";
+      const voices = speechSynthesis.getVoices();
+      const pick =
+        voices.find((v) => /en[-_]US/i.test(v.lang) && /male/i.test(v.name)) ||
+        voices.find((v) => /en[-_]US/i.test(v.lang)) ||
+        null;
+      if (pick) u.voice = pick;
+      u.onend = u.onerror = () =>
+        setSpeakingIdx((cur) => (cur === idx ? null : cur));
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+      setSpeakingIdx(idx);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function speak(text: string, idx: number) {
-    unlockAudio(); // sync part of this handler still counts as the gesture
+    unlockAudio();
     if (speakingIdx === idx) {
       stopSpeech();
       return;
@@ -108,24 +133,41 @@ export default function ChatPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
+
       if (!res.ok) {
+        // Server voice unavailable — speak with the device instead and
+        // surface the real reason so it can be diagnosed.
         const data = await res.json().catch(() => ({}));
-        setError(data.error || `Speech failed (${res.status}).`);
+        const reason = data.error || `HTTP ${res.status}`;
+        const spoke = speakWithDevice(cleanForSpeech(text), idx);
+        setError(
+          spoke
+            ? `Server voice unavailable (${reason}) — used your device's voice.`
+            : `Speech failed: ${reason}`
+        );
         return;
       }
+
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       blobUrlRef.current = url;
       const a = getAudioEl();
       a.src = url;
-      a.onended = a.onerror = () => {
+      a.onended = () => {
         setSpeakingIdx((cur) => (cur === idx ? null : cur));
+      };
+      a.onerror = () => {
+        // MP3 arrived but the element refused it — device voice instead.
+        speakWithDevice(cleanForSpeech(text), idx);
       };
       setSpeakingIdx(idx);
       await a.play();
     } catch {
-      setError("Couldn't play audio on this device.");
-      setSpeakingIdx(null);
+      const spoke = speakWithDevice(cleanForSpeech(text), idx);
+      if (!spoke) {
+        setError("Couldn't play audio on this device.");
+        setSpeakingIdx(null);
+      }
     } finally {
       setLoadingIdx((cur) => (cur === idx ? null : cur));
     }

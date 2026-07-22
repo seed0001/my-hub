@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { synthesize, cleanForSpeech } from "@/lib/tts";
+import { synthesize } from "@/lib/tts";
+import { cleanForSpeech } from "@/lib/speechText";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,8 +17,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const audio = await synthesize(text);
-    if (audio.length === 0)
-      return NextResponse.json({ error: "TTS produced no audio." }, { status: 502 });
+    if (audio.length === 0) {
+      return NextResponse.json(
+        { error: "Edge TTS returned no audio (likely blocked from this server)." },
+        { status: 502 }
+      );
+    }
     return new Response(new Uint8Array(audio), {
       headers: {
         "Content-Type": "audio/mpeg",
@@ -26,7 +31,8 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("tts failed", err);
-    return NextResponse.json({ error: "Speech synthesis failed." }, { status: 502 });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("tts failed:", msg, err);
+    return NextResponse.json({ error: `Edge TTS failed: ${msg}` }, { status: 502 });
   }
 }
