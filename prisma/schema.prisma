@@ -162,6 +162,44 @@ model PushSubscription {
   @@index([userId])
 }
 
+// Durable audit trail for every attempted GitHub/Railway integration
+// operation. Deliberately not FK-linked to User so audit history survives
+// account changes. Never contains tokens, secret values, or unredacted output.
+model IntegrationLog {
+  id            String   @id @default(cuid())
+  userId        String?
+  integration   String // "github" | "railway"
+  tool          String
+  correlationId String
+  riskClass     String // READ | WRITE | DESTRUCTIVE
+  target        String? // sanitized target identifier, e.g. "owner/repo"
+  confirmation  String? // not_required | required | confirmed
+  outcome       String // SUCCESS | FAILURE | CANCELLED | BLOCKED
+  errorCategory String?
+  errorMessage  String?  @db.Text // sanitized
+  durationMs    Int
+  createdAt     DateTime @default(now())
+
+  @@index([integration, createdAt])
+  @@index([userId, createdAt])
+}
+
+// Single-use, short-lived confirmation for high-risk integration actions.
+// Bound to user + tool + exact normalized argument hash; consumed atomically.
+model PendingAction {
+  id         String    @id @default(cuid())
+  userId     String
+  tool       String
+  argsHash   String
+  argsJson   String    @db.Text // sanitized normalized args (never secret values)
+  summary    String    @db.Text
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
 model ChatMessage {
   id        String   @id @default(cuid())
   userId    String

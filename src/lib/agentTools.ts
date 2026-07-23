@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/db";
 import { ddgSearch, fetchPageText } from "@/lib/webSearch";
+import {
+  INTEGRATION_TOOL_DEFS,
+  executeIntegrationTool,
+  isIntegrationTool,
+} from "@/lib/integrations/tools";
 
 /**
  * The assistant's hands: tool definitions (OpenAI function-calling format)
@@ -81,7 +86,7 @@ export async function nextUpProject(userId: string, excludeId?: string) {
 // Tool definitions
 // ---------------------------------------------------------------------------
 
-export const TOOL_DEFS = [
+const BASE_TOOL_DEFS = [
   {
     type: "function",
     function: {
@@ -431,6 +436,9 @@ export const TOOL_DEFS = [
   },
 ] as const;
 
+/** Hub tools plus the GitHub/Railway integration tools. */
+export const TOOL_DEFS = [...BASE_TOOL_DEFS, ...INTEGRATION_TOOL_DEFS] as const;
+
 // ---------------------------------------------------------------------------
 // Executor
 // ---------------------------------------------------------------------------
@@ -457,6 +465,11 @@ export async function executeTool(
   name: string,
   args: Args
 ): Promise<ToolOutcome> {
+  // GitHub/Railway tools route through the guarded integration layer
+  // (validation → confirmation → audit) and never touch the hub executor.
+  if (isIntegrationTool(name)) {
+    return executeIntegrationTool(userId, name, args);
+  }
   try {
     switch (name) {
       case "create_project": {
