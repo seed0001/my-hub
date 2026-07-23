@@ -1,11 +1,13 @@
 import { IntegrationError } from "./errors";
-import { runCli } from "./runner";
+import { RE, assertId, parseJson, runCli } from "./runner";
+import * as api from "./railwayApi";
 
 /**
- * Typed Railway adapter. Pass 1 ships connection diagnostics; project,
- * deployment, and configuration operations land in Pass 2 (CLI where it
- * supports non-interactive use, Railway's documented public GraphQL API
- * behind the same typed surface where it doesn't).
+ * Typed Railway adapter. Uses the CLI where it works non-interactively
+ * (version, whoami, project listing) and the documented public GraphQL API
+ * (see railwayApi.ts) for everything the CLI does not expose to servers:
+ * project/service/deployment inspection, logs, redeploy/cancel, domains,
+ * variables, service settings, and deletes.
  */
 
 export interface RailwayStatus {
@@ -93,4 +95,271 @@ export async function railwayStatus(): Promise<RailwayStatus> {
       detail: e.message,
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+const id = (v: unknown, what: string) => assertId(v, RE.railwayId, what);
+
+function limit(v: unknown, def: number, max: number): number {
+  const n = typeof v === "number" && isFinite(v) ? Math.floor(v) : def;
+  return Math.min(Math.max(n, 1), max);
+}
+
+/** Environments whose name reads as production get extra confirmation. */
+export function isProductionName(name: string): boolean {
+  return /^prod(uction)?$/i.test(name.trim());
+}
+
+export async function environmentName(environmentId: string): Promise<string> {
+  return api.apiEnvironmentName(id(environmentId, "environmentId"));
+}
+
+// ---------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------
+
+/** API-first (works without the CLI); falls back to `railway list --json`. */
+export async function listProjects(): Promise<
+  Array<{ id: string | null; name: string }>
+> {
+  if (api.apiConfigured()) {
+    const projects = await api.apiListProjects();
+    return projects.map((p) => ({ id: p.id, name: p.name }));
+  }
+  const res = await runCli("railway", ["list", "--json"], { timeoutMs: 30_000 });
+  if (res.exitCode !== 0)
+    throw new IntegrationError(
+      "COMMAND_FAILED",
+      `list Railway projects: railway CLI exited ${res.exitCode}. ${res.stderr.slice(0, 300)}`,
+      "Set RAILWAY_API_TOKEN for API-based listing, or authenticate the CLI."
+    );
+  const parsed = parseJson<unknown>(res.stdout, "list Railway projects");
+  const rows = Array.isArray(parsed)
+    ? parsed
+    : typeof parsed === "object" && parsed !== null
+      ? Object.values(parsed as Record<string, unknown>).flat()
+      : [];
+  return rows
+    .filter((r): r is Record<string, unknown> => typeof r === "object" && r !== null)
+    .map((r) => ({
+      id: typeof r.id === "string" ? r.id : null,
+      name: String(r.name ?? "unknown"),
+    }));
+}
+
+export async function projectView(projectId: string) {
+  return api.apiProjectView(id(projectId, "projectId"));
+}
+
+export async function listDeployments(params: {
+  projectId: string;
+  environmentId?: string;
+  serviceId?: string;
+  limit?: number;
+}) {
+  return api.apiListDeployments({
+    projectId: id(params.projectId, "projectId"),
+    environmentId: params.environmentId ? id(params.environmentId, "environmentId") : undefined,
+    serviceId: params.serviceId ? id(params.serviceId, "serviceId") : undefined,
+    limit: limit(params.limit, 10, 50),
+  });
+}
+
+export async function deploymentView(deploymentId: string) {
+  return api.apiDeploymentView(id(deploymentId, "deploymentId"));
+}
+
+export const MAX_LOG_LINES = 500;
+
+export async function deploymentLogs(params: {
+  deploymentId: string;
+  kind?: "build" | "deploy";
+  lines?: number;
+}) {
+  const kind = params.kind === "build" ? "build" : "deploy";
+  const rows = await api.apiLogs({
+    deploymentId: id(params.deploymentId, "deploymentId"),
+    kind,
+    limit: limit(params.lines, 100, MAX_LOG_LINES),
+  });
+  return { kind, lineCount: rows.length, truncatedTo: limit(params.lines, 100, MAX_LOG_LINES), lines: rows };
+}
+
+/** Names only — variable values never reach the model. */
+export async function variableNames(params: {
+  projectId: string;
+  environmentId: string;
+  serviceId?: string;
+}) {
+  return api.apiVariableNames({
+    projectId: id(params.projectId, "projectId"),
+    environmentId: id(params.environmentId, "environmentId"),
+    serviceId: params.serviceId ? id(params.serviceId, "serviceId") : undefined,
+  });
+}
+
+export async function listDomains(params: {
+  projectId: string;
+  environmentId: string;
+  serviceId: string;
+}) {
+  return api.apiDomains({
+    projectId: id(params.projectId, "projectId"),
+    environmentId: id(params.environmentId, "environmentId"),
+    serviceId: id(params.serviceId, "serviceId"),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
+
+export async function createProject(name: string) {
+  assertId(name, RE.railwayName, "project name");
+  return api.apiProjectCreate(name);
+}
+
+export async function createService(params: {
+  projectId: string;
+  repo?: string;
+  branch?: string;
+  name?: string;
+}) {
+  if (params.repo) assertId(params.repo, RE.ghRepoFull, "repo (owner/repo)");
+  if (params.branch) assertId(params.branch, RE.branch, "branch");
+  if (params.name) assertId(params.name, RE.railwayName, "service name");
+  return api.apiServiceCreate({
+    projectId: id(params.projectId, "projectId"),
+    repo: params.repo,
+    branch: params.branch,
+    name: params.name,
+  });
+}
+
+export async function redeploy(params: { serviceId: string; environmentId: string }) {
+  await api.apiServiceInstanceRedeploy({
+    serviceId: id(params.serviceId, "serviceId"),
+    environmentId: id(params.environmentId, "environmentId"),
+  });
+  return { redeployed: true };
+}
+
+export async function cancelDeployment(deploymentId: string) {
+  await api.apiDeploymentCancel(id(deploymentId, "deploymentId"));
+  return { cancelled: deploymentId };
+}
+
+export async function variableUpsert(params: {
+  projectId: string;
+  environmentId: string;
+  serviceId?: string;
+  name: string;
+  value: string;
+}) {
+  assertId(params.name, RE.envVarName, "variable name");
+  await api.apiVariableUpsert({
+    projectId: id(params.projectId, "projectId"),
+    environmentId: id(params.environmentId, "environmentId"),
+    serviceId: params.serviceId ? id(params.serviceId, "serviceId") : undefined,
+    name: params.name,
+    value: params.value,
+  });
+  return { set: params.name };
+}
+
+export async function variableDelete(params: {
+  projectId: string;
+  environmentId: string;
+  serviceId?: string;
+  name: string;
+}) {
+  assertId(params.name, RE.envVarName, "variable name");
+  await api.apiVariableDelete({
+    projectId: id(params.projectId, "projectId"),
+    environmentId: id(params.environmentId, "environmentId"),
+    serviceId: params.serviceId ? id(params.serviceId, "serviceId") : undefined,
+    name: params.name,
+  });
+  return { deleted: params.name };
+}
+
+export async function domainCreate(params: { environmentId: string; serviceId: string }) {
+  return api.apiServiceDomainCreate({
+    environmentId: id(params.environmentId, "environmentId"),
+    serviceId: id(params.serviceId, "serviceId"),
+  });
+}
+
+export async function domainDelete(domainId: string) {
+  await api.apiServiceDomainDelete(id(domainId, "domainId"));
+  return { removed: domainId };
+}
+
+const SERVICE_SETTING_KEYS = [
+  "sourceBranch",
+  "buildCommand",
+  "startCommand",
+  "healthcheckPath",
+  "restartPolicyType",
+] as const;
+
+export type ServiceSettingKey = (typeof SERVICE_SETTING_KEYS)[number];
+
+export async function updateServiceSettings(params: {
+  serviceId: string;
+  environmentId: string;
+  settings: Partial<Record<ServiceSettingKey, string>>;
+}) {
+  const input: Record<string, unknown> = {};
+  const changed: string[] = [];
+  for (const key of SERVICE_SETTING_KEYS) {
+    const value = params.settings[key];
+    if (value === undefined) continue;
+    if (key === "sourceBranch") {
+      assertId(value, RE.branch, "sourceBranch");
+      input.source = { branch: value };
+    } else if (key === "restartPolicyType") {
+      if (!["ON_FAILURE", "ALWAYS", "NEVER"].includes(value))
+        throw new IntegrationError(
+          "VALIDATION_ERROR",
+          "restartPolicyType must be ON_FAILURE, ALWAYS, or NEVER"
+        );
+      input.restartPolicyType = value;
+    } else {
+      if (value.includes("\0") || value.length > 2000)
+        throw new IntegrationError("VALIDATION_ERROR", `${key} is invalid`);
+      input[key] = value;
+    }
+    changed.push(key);
+  }
+  if (changed.length === 0)
+    throw new IntegrationError("VALIDATION_ERROR", "No settings to change were provided.");
+  await api.apiServiceInstanceUpdate({
+    serviceId: id(params.serviceId, "serviceId"),
+    environmentId: id(params.environmentId, "environmentId"),
+    input,
+  });
+  return { updated: changed };
+}
+
+// ---------------------------------------------------------------------------
+// Deletes (only reachable through the confirmation gate)
+// ---------------------------------------------------------------------------
+
+export async function deleteProject(projectId: string) {
+  await api.apiProjectDelete(id(projectId, "projectId"));
+  return { deleted: projectId };
+}
+
+export async function deleteService(serviceId: string) {
+  await api.apiServiceDelete(id(serviceId, "serviceId"));
+  return { deleted: serviceId };
+}
+
+export async function deleteEnvironment(environmentId: string) {
+  await api.apiEnvironmentDelete(id(environmentId, "environmentId"));
+  return { deleted: environmentId };
 }

@@ -8,6 +8,7 @@ A personal command center — your projects, bookmarks, and a built-in AI assist
 - **Projects** — track everything you're building: status (Idea → Planning → Active → Paused → Done → Archived), descriptions, live/repo links, pinning, and a running feed of status updates per project.
 - **Bookmarks** — save web addresses with titles, categories, tags, notes, and auto-fetched favicons. Search and filter instantly.
 - **AI assistant** — a chat panel powered by OpenRouter that *sees your projects and bookmarks* and helps you plan, summarize status, and stay organized. Conversation history is saved.
+- **GitHub & Railway management** — the assistant can inspect and manage your GitHub repos (issues, PRs, releases, workflows, repo creation) and Railway projects (deployments, logs, variables, domains) through narrowly scoped, audited tools. Destructive and production-impacting actions require exact single-use confirmations; secret values are entered only in the Integrations sheet, never chat. See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
 
 ## Tech stack
 
@@ -35,6 +36,8 @@ Copy `.env.example` to `.env` for local dev, and set these in Railway for produc
 | `VAPID_PUBLIC_KEY` | ⬜ | Web-push public key for reminder notifications. Generate: `npx web-push generate-vapid-keys` |
 | `VAPID_PRIVATE_KEY` | ⬜ | Web-push private key (keep secret). |
 | `VAPID_SUBJECT` | ⬜ | Contact for push, e.g. `mailto:you@example.com`. |
+| `GH_TOKEN` | ⬜ | Fine-grained GitHub PAT for the assistant's GitHub tools ([docs](docs/INTEGRATIONS.md)). |
+| `RAILWAY_API_TOKEN` | ⬜ | Railway API token for the assistant's Railway tools ([docs](docs/INTEGRATIONS.md)). |
 
 ---
 
@@ -77,6 +80,7 @@ Useful scripts:
 - `npm run build` — production build
 - `npm run db:push` — sync Prisma schema to the DB
 - `npm run db:studio` — open Prisma Studio to inspect data
+- `npm run test` — run the integration-layer test suite (vitest)
 
 ---
 
